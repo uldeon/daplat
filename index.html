@@ -1,470 +1,173 @@
-<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
-  "http://www.w3.org/TR/html4/strict.dtd">
-<html lang="fr">
+<!DOCTYPE html>
+<html>
 <head>
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<title>PaperRun — Plateforme e-ink (SVG sprites)</title>
-<style>
-  html,body{height:100%;margin:0;padding:0;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif;-webkit-user-select:none;-moz-user-select:none;user-select:none;}
-  #game{position:relative;margin:0 auto;overflow:hidden;border:1px solid #000;background:#fff}
-  .tile{position:absolute;box-sizing:border-box;border:0}
-  #hud{position:fixed;left:0;right:0;bottom:0;height:96px;display:block;padding:6px 8px;background:#fff;border-top:1px solid #000}
-  .btn{display:inline-block;padding:14px 18px;margin-right:8px;border:1px solid #000;background:#fff;font-size:18px;touch-action:manipulation;-webkit-tap-highlight-color:rgba(0,0,0,0)}
-  #info{position:fixed;left:8px;top:8px;background:#fff;padding:6px;border:1px solid #000;font-size:12px}
-  #controls{position:fixed;right:8px;bottom:8px;display:flex;flex-direction:row;gap:8px}
-  #controls .btn{padding:12px 16px;font-size:18px}
-  #fps{position:fixed;right:8px;top:8px;background:#fff;padding:4px;border:1px solid #000;font-size:12px}
-  /* classes monochromes */
-  .solid{background:#000}
-  /* reserve place pour svg player */
-  #playerDiv{position:absolute;pointer-events:none}
-  /* fallback coin style (rare) */
-  .coin-fallback{background:#000;border-radius:50%}
-</style>
+  <title>Platformer E-ink</title>
+  <meta charset="utf-8">
 </head>
-<body>
-<div id="info">PaperRun — Plateforme optimisée e-ink (SVG)</div>
-<div id="fps">FPS: --</div>
-<div id="game"></div>
+<body style="margin:0; background:#fff;">
 
-<div id="hud">
-  <button id="btn-restart" class="btn">↺ Restart</button>
-  <button id="btn-save" class="btn">💾 Save</button>
-  <button id="btn-load" class="btn">🔁 Load</button>
-  <span style="margin-left:12px;font-size:14px">Score: <span id="score">0</span></span>
+<!-- Onglets -->
+<div style="text-align:center; margin:5px;">
+  <button onclick="showGame()">Jeu</button>
+  <button onclick="showEditor()">Éditeur</button>
 </div>
 
-<div id="controls">
-  <button id="left" class="btn">◀</button>
-  <button id="jump" class="btn">▲</button>
-  <button id="right" class="btn">▶</button>
+<!-- Zone de jeu -->
+<div id="gameTab">
+  <svg id="game" width="600" height="300" style="background:#eee; display:block; margin:auto;">
+    <!-- Sol -->
+    <rect id="ground" x="0" y="260" width="600" height="40" fill="#444"/>
+    <!-- Joueur -->
+    <rect id="player" x="50" y="220" width="20" height="40" fill="#000"/>
+    <!-- Ennemi -->
+    <rect id="enemy" x="300" y="230" width="20" height="30" fill="#a00"/>
+    <!-- Plateformes -->
+    <g id="platforms"></g>
+    <!-- Texte -->
+    <text id="status" x="10" y="20" font-size="16" fill="#000">Score: 0</text>
+  </svg>
+
+  <!-- Contrôles tactiles -->
+  <div style="text-align:center; margin-top:5px;">
+    <button onclick="moveLeft()">⬅️</button>
+    <button onclick="jump()">⬆️</button>
+    <button onclick="moveRight()">➡️</button>
+    <button onclick="crouch()">⬇️</button>
+  </div>
+  <div style="text-align:center; margin-top:5px;">
+    <button onclick="resetGame()">Rejouer</button>
+  </div>
 </div>
 
-<!-- Inline SVG sprite definitions (très simples, monochrome) -->
-<svg id="sprites" width="0" height="0" style="position:absolute;left:-9999px;top:-9999px" aria-hidden="true" focusable="false">
-  <defs>
-    <!-- player: small rounded humanoid (rect + head) -->
-    <g id="player-sprite" transform="scale(1)">
-      <rect x="2" y="8" width="20" height="28" rx="2" ry="2" />
-      <circle cx="12" cy="6" r="6" />
-      <rect x="0" y="28" width="8" height="6" />
-      <rect x="20" y="28" width="8" height="6" />
-    </g>
+<!-- Onglet éditeur -->
+<div id="editorTab" style="display:none; text-align:center;">
+  <p>Éditeur basique : ajoute des plateformes (x,y,w,h)</p>
+  <input id="ex" size="3" placeholder="x"/>
+  <input id="ey" size="3" placeholder="y"/>
+  <input id="ew" size="3" placeholder="w"/>
+  <input id="eh" size="3" placeholder="h"/>
+  <button onclick="addPlatform()">Ajouter</button>
+  <div>
+    <textarea id="levelData" rows="6" cols="50"></textarea>
+  </div>
+  <button onclick="loadLevel()">Charger niveau</button>
+</div>
 
-    <!-- coin: circle with inner ring -->
-    <g id="coin-sprite">
-      <circle cx="10" cy="10" r="9" />
-      <circle cx="10" cy="10" r="5" fill="#fff" />
-    </g>
+<script type="text/javascript">
+var player=document.getElementById("player");
+var enemy=document.getElementById("enemy");
+var status=document.getElementById("status");
+var platformsGroup=document.getElementById("platforms");
 
-    <!-- block tile (solid) -->
-    <g id="block-sprite"><rect x="0" y="0" width="32" height="32" /></g>
+var px, py, pw=20, ph=40, vx, vy, onGround, score, gameOver;
+var platforms=[];
 
-    <!-- platform: thinner rect -->
-    <g id="platform-sprite"><rect x="0" y="10" width="32" height="12" rx="2" ry="2"/></g>
-  </defs>
-</svg>
-
-<script>
-/*
-Version optimisée : réutilisation d'éléments DOM, pools, peu d'allocations,
-éviter fonctions anonymes multiples, approche imperative 'old-school'.
-Les fonctionnalités existantes sont préservées.
-*/
-
-// ===== CONFIG =====
-var TILE = 18;
-var VIEW_TILES_X = 34;
-var VIEW_TILES_Y = 44;
-var GRAVITY = 0.9;
-var MOVE_SPEED = 1.8;
-var JUMP_V = -8;
-var DEFAULT_FPS = 6;
-var HIGH_FPS = 12;
-var TOUCH_FALLBACK_THRESHOLD = 800;
-
-// ===== device detection =====
-var deviceWidth = (window.innerWidth || document.documentElement.clientWidth);
-var deviceHeight = (window.innerHeight || document.documentElement.clientHeight);
-var lowPerf = (deviceWidth < TOUCH_FALLBACK_THRESHOLD) || (navigator.userAgent && navigator.userAgent.match(/Kindle|Silk|BowlDraw/i));
-var FPS = lowPerf ? DEFAULT_FPS : HIGH_FPS;
-if (deviceWidth < 600) TILE = 14;
-
-// ===== DOM caching =====
-var game = document.getElementById('game');
-var scoreEl = document.getElementById('score');
-var fpsEl = document.getElementById('fps');
-
-// viewport sizing
-var viewW = Math.floor(deviceWidth * 0.98);
-var viewH = Math.floor(deviceHeight * 0.74);
-game.style.width = viewW + 'px';
-game.style.height = viewH + 'px';
-var cols = Math.ceil(viewW / TILE);
-var rows = Math.ceil(viewH / TILE);
-cols = Math.max(20, Math.min(40, cols));
-rows = Math.max(12, Math.min(60, rows));
-
-// ===== LEVELS (identique) =====
-var levels = [];
-levels.push({
-  name: "Tutoriel",
-  map: [
-    "                                    ",
-    "                                    ",
-    "                                    ",
-    "                                    ",
-    "                                    ",
-    "           o          o             ",
-    "       -----        -----           ",
-    "                                    ",
-    "    -----                 -----     ",
-    "                                    ",
-    "############################  #####"
-  ],
-  spawn: {x:2, y:7}
-});
-var curLevel = 0;
-var map = levels[curLevel].map.slice();
-var score = 0;
-
-// ===== GAME STATE =====
-var player = { x: levels[curLevel].spawn.x * TILE, y: levels[curLevel].spawn.y * TILE, w: Math.floor(TILE*0.9), h: Math.floor(TILE*1.4), vx:0, vy:0, grounded:false };
-var keys = { left:false, right:false, jump:false };
-var touchButtons = { left:false, right:false, jump:false };
-
-// ===== Pools et éléments réutilisables =====
-var divPool = [];
-var svgPool = [];
-var activeTiles = [];
-var playerSvg = null;
-
-// create an SVG element helper (reuse)
-function makeSVG(name,w,h){
-  // name is id in defs
-  var ns = "http://www.w3.org/2000/svg";
-  var s = document.createElementNS(ns,"svg");
-  s.setAttribute("viewBox","0 0 32 32");
-  s.setAttribute("width",w + "px");
-  s.setAttribute("height",h + "px");
-  s.style.position = "absolute";
-  s.style.pointerEvents = "none";
-  var use = document.createElementNS(ns,"use");
-  // older browsers sometimes require xlink:href; try both
-  try{ use.setAttributeNS("http://www.w3.org/1999/xlink","xlink:href","#" + name); }catch(e){}
-  use.setAttribute("href","#" + name);
-  s.appendChild(use);
-  return s;
+function init(){
+  px=50; py=220; vx=0; vy=0;
+  onGround=false; score=0; gameOver=false;
+  player.setAttribute("x",px);
+  player.setAttribute("y",py);
+  player.setAttribute("height",ph);
+  status.textContent="Score: 0";
+  drawPlatforms();
+  loop();
 }
+function resetGame(){ init(); }
 
-// obtenir div pour tile solide
-function getDiv(){
-  var d = divPool.pop();
-  if(!d){
-    d = document.createElement('div');
-    d.className = 'tile';
-    game.appendChild(d);
-  }
-  return d;
-}
+function showGame(){document.getElementById("gameTab").style.display="block";document.getElementById("editorTab").style.display="none";}
+function showEditor(){document.getElementById("gameTab").style.display="none";document.getElementById("editorTab").style.display="block";updateEditorText();}
 
-// obtenir svg pour coin/other
-function getSVG(){
-  var s = svgPool.pop();
-  if(!s){
-    s = makeSVG('coin-sprite', Math.max(6, Math.floor(TILE*0.6)), Math.max(6, Math.floor(TILE*0.6)));
-    game.appendChild(s);
-  }
-  return s;
-}
+document.onkeydown=function(e){
+  if(gameOver) return;
+  if(e.keyCode==37) vx=-2;
+  if(e.keyCode==39) vx=2;
+  if(e.keyCode==38 && onGround){vy=-6; onGround=false;}
+  if(e.keyCode==40) crouch();
+};
+document.onkeyup=function(e){
+  if(e.keyCode==37||e.keyCode==39) vx=0;
+  if(e.keyCode==40) standUp();
+};
 
-function releaseAll(){
-  for(var i=0;i<activeTiles.length;i++){
-    var e = activeTiles[i];
-    e.style.display = 'none';
-    // return to right pool
-    if(e.tagName && e.tagName.toLowerCase() === 'svg') svgPool.push(e);
-    else divPool.push(e);
-  }
-  activeTiles.length = 0;
-}
+function moveLeft(){vx=-2;}
+function moveRight(){vx=2;}
+function jump(){if(onGround){vy=-6; onGround=false;}}
+function crouch(){if(ph==40){py+=20;ph=20;player.setAttribute("height",ph);player.setAttribute("y",py);}}
+function standUp(){if(ph==20){py-=20;ph=40;player.setAttribute("height",ph);player.setAttribute("y",py);}}
 
-// ===== Simple tile helpers (kept) =====
-function tileAt(col,row){
-  if(row < 0 || row >= map.length) return '#';
-  var line = map[row];
-  if(col < 0 || col >= line.length) return ' ';
-  return line.charAt(col);
-}
-function setTile(col,row,ch){
-  if(row < 0 || row >= map.length) return;
-  var line = map[row];
-  if(col < 0 || col >= line.length) return;
-  map[row] = line.substr(0,col) + ch + line.substr(col+1);
-}
+function loop(){
+  if(gameOver) return;
+  vy+=0.3;
+  py+=vy; px+=vx;
 
-// ===== Render (optimisé) =====
-function render(){
-  var cx = player.x + player.w/2;
-  var cy = player.y + player.h/2;
-  var viewCols = cols;
-  var viewRows = rows;
-  var startCol = Math.floor(cx / TILE) - Math.floor(viewCols/2);
-  var startRow = Math.floor(cy / TILE) - Math.floor(viewRows/3);
-  if(startCol < 0) startCol = 0;
-  if(startRow < 0) startRow = 0;
+  // sol
+  if(py+ph>=260){py=260-ph; vy=0; onGround=true;}
 
-  releaseAll();
-
-  // render tiles
-  for(var r=0;r<viewRows;r++){
-    for(var c=0;c<viewCols;c++){
-      var mc = startCol + c;
-      var mr = startRow + r;
-      var ch = tileAt(mc,mr);
-      if(ch !== ' '){
-        if(ch === '#' || ch === '-'){
-          var d = getDiv();
-          d.style.left = (c * TILE) + 'px';
-          d.style.top = (r * TILE) + 'px';
-          d.style.width = TILE + 'px';
-          d.style.height = TILE + 'px';
-          d.style.display = 'block';
-          d.className = (ch === '#') ? 'tile solid' : 'tile solid';
-          activeTiles.push(d);
-        } else if(ch === 'o'){
-          var s = getSVG();
-          var coinSize = Math.max(6, Math.floor(TILE*0.6));
-          s.setAttribute('width', coinSize + 'px');
-          s.setAttribute('height', coinSize + 'px');
-          s.style.left = (c * TILE + Math.floor(TILE*0.2)) + 'px';
-          s.style.top = (r * TILE + Math.floor(TILE*0.2)) + 'px';
-          s.style.display = 'block';
-          activeTiles.push(s);
-        }
-      }
+  // plateformes
+  for(var i=0;i<platforms.length;i++){
+    var p=platforms[i];
+    if(px+pw>p.x && px<p.x+p.w && py+ph>=p.y && py+ph<=p.y+10 && vy>=0){
+      py=p.y-ph; vy=0; onGround=true;
     }
   }
 
-  // render player (SVG) on top
-  if(!playerSvg){
-    // create once
-    playerSvg = makeSVG('player-sprite', player.w, player.h);
-    playerSvg.id = 'playerDiv';
-    playerSvg.style.zIndex = 999;
-    game.appendChild(playerSvg);
-  }
-  var screenX = (player.x - startCol * TILE);
-  var screenY = (player.y - startRow * TILE);
-  playerSvg.style.left = Math.round(screenX) + 'px';
-  playerSvg.style.top = Math.round(screenY) + 'px';
-  playerSvg.style.width = player.w + 'px';
-  playerSvg.style.height = player.h + 'px';
+  // chute
+  if(py>280){status.textContent="Game Over ! Score:"+score;gameOver=true;return;}
 
-  // fps readout
-  fpsEl.textContent = 'FPS: ' + FPS + (lowPerf ? ' (low)' : '');
+  // collision écran
+  if(px<0) px=0;
+  if(px>580) px=580;
+
+  // ennemi
+  var ex=parseInt(enemy.getAttribute("x"));
+  ex+= (Math.sin(Date.now()/500))*1.5;
+  enemy.setAttribute("x",ex);
+  var ey=parseInt(enemy.getAttribute("y"));
+  var ew=parseInt(enemy.getAttribute("width"));
+  var eh=parseInt(enemy.getAttribute("height"));
+  if(px<pw+ex && px+pw>ex && py<ey+eh && py+ph>ey){status.textContent="Touché ! Game Over. Score:"+score;gameOver=true;return;}
+
+  score++;
+  status.textContent="Score: "+score;
+  player.setAttribute("x",px);
+  player.setAttribute("y",py);
+
+  setTimeout(loop,40);
 }
 
-// ===== Collision & physics (kept simple) =====
-function collidesAt(x,y,w,h){
-  var left = Math.floor(x / TILE);
-  var right = Math.floor((x + w - 1) / TILE);
-  var top = Math.floor(y / TILE);
-  var bottom = Math.floor((y + h - 1) / TILE);
-  for(var r=top;r<=bottom;r++){
-    for(var c=left;c<=right;c++){
-      var ch = tileAt(c,r);
-      if(ch === '#' || ch === '-') return true;
-    }
-  }
-  return false;
-}
-function collectAt(x,y,w,h){
-  var left = Math.floor(x / TILE);
-  var right = Math.floor((x + w - 1) / TILE);
-  var top = Math.floor(y / TILE);
-  var bottom = Math.floor((y + h - 1) / TILE);
-  for(var r=top;r<=bottom;r++){
-    for(var c=left;c<=right;c++){
-      if(tileAt(c,r) === 'o'){
-        setTile(c,r,' ');
-        score += 10;
-        scoreEl.textContent = score;
-      }
-    }
+// ----- Gestion plateformes -----
+function drawPlatforms(){
+  platformsGroup.innerHTML="";
+  for(var i=0;i<platforms.length;i++){
+    var p=platforms[i];
+    var r=document.createElementNS("http://www.w3.org/2000/svg","rect");
+    r.setAttribute("x",p.x);
+    r.setAttribute("y",p.y);
+    r.setAttribute("width",p.w);
+    r.setAttribute("height",p.h);
+    r.setAttribute("fill","#666");
+    platformsGroup.appendChild(r);
   }
 }
-
-// ===== Game loop =====
-var accumulator = 0;
-var lastTick = Date.now();
-var tickInterval = 1000 / FPS;
-
-function updatePhysics(){
-  var move = 0;
-  if(keys.left || touchButtons.left) move -= 1;
-  if(keys.right || touchButtons.right) move += 1;
-  player.vx = move * MOVE_SPEED;
-  player.vy += GRAVITY;
-
-  // horizontal
-  var nx = player.x + player.vx;
-  if(!collidesAt(nx, player.y, player.w, player.h)){
-    player.x = nx;
-  } else {
-    player.vx = 0;
-  }
-
-  // vertical
-  var ny = player.y + player.vy;
-  if(!collidesAt(player.x, ny, player.w, player.h)){
-    player.y = ny;
-    player.grounded = false;
-  } else {
-    if(player.vy > 0){
-      player.grounded = true;
-      player.vy = 0;
-      player.y = Math.floor(player.y / TILE) * TILE;
-    } else {
-      player.vy = 0;
-    }
-  }
-
-  if((keys.jump || touchButtons.jump) && player.grounded){
-    player.vy = JUMP_V;
-    player.grounded = false;
-  }
-
-  collectAt(player.x, player.y, player.w, player.h);
-
-  var maxY = map.length * TILE + TILE*6;
-  if(player.y > maxY) respawn();
-}
-
-function gameTick(){
-  var now = Date.now();
-  var dt = now - lastTick;
-  lastTick = now;
-  accumulator += dt;
-
-  var steps = 0;
-  while(accumulator >= tickInterval && steps < 5){
-    updatePhysics();
-    accumulator -= tickInterval;
-    steps++;
-  }
-  render();
-}
-
-function respawn(){
-  player.x = levels[curLevel].spawn.x * TILE;
-  player.y = levels[curLevel].spawn.y * TILE;
-  player.vx = player.vy = 0;
-}
-
-function restartLevel(){
-  map = levels[curLevel].map.slice();
-  score = 0;
-  scoreEl.textContent = score;
-  respawn();
-}
-
-// ===== Controls (touch + mouse + keyboard) =====
-function bindControls(){
-  var L = document.getElementById('left');
-  var R = document.getElementById('right');
-  var J = document.getElementById('jump');
-
-  L.addEventListener('touchstart', function(e){ e.preventDefault(); touchButtons.left=true; }, false);
-  L.addEventListener('touchend', function(e){ e.preventDefault(); touchButtons.left=false; }, false);
-  L.addEventListener('mousedown', function(){ touchButtons.left=true; }, false);
-  L.addEventListener('mouseup', function(){ touchButtons.left=false; }, false);
-
-  R.addEventListener('touchstart', function(e){ e.preventDefault(); touchButtons.right=true; }, false);
-  R.addEventListener('touchend', function(e){ e.preventDefault(); touchButtons.right=false; }, false);
-  R.addEventListener('mousedown', function(){ touchButtons.right=true; }, false);
-  R.addEventListener('mouseup', function(){ touchButtons.right=false; }, false);
-
-  J.addEventListener('touchstart', function(e){ e.preventDefault(); touchButtons.jump=true; }, false);
-  J.addEventListener('touchend', function(e){ e.preventDefault(); touchButtons.jump=false; }, false);
-  J.addEventListener('mousedown', function(){ touchButtons.jump=true; }, false);
-  J.addEventListener('mouseup', function(){ touchButtons.jump=false; }, false);
-
-  document.addEventListener('keydown', function(e){
-    var kc = e.keyCode;
-    if(kc === 37) keys.left = true;
-    if(kc === 39) keys.right = true;
-    if(kc === 38 || kc === 32) keys.jump = true;
-  }, false);
-  document.addEventListener('keyup', function(e){
-    var kc = e.keyCode;
-    if(kc === 37) keys.left = false;
-    if(kc === 39) keys.right = false;
-    if(kc === 38 || kc === 32) keys.jump = false;
-  }, false);
-
-  document.getElementById('btn-restart').addEventListener('click', restartLevel, false);
-  document.getElementById('btn-save').addEventListener('click', saveState, false);
-  document.getElementById('btn-load').addEventListener('click', loadState, false);
-}
-
-// ===== Save / Load (identique) =====
-function saveState(){
-  var st = { level: curLevel, player: {x:player.x,y:player.y}, score: score, map: map };
-  try{
-    localStorage.setItem('paperrun_save', JSON.stringify(st));
-    alert('Saved.');
-  }catch(e){
-    alert('Impossible de sauvegarder (localStorage indisponible).');
+function addPlatform(){
+  var x=parseInt(document.getElementById("ex").value);
+  var y=parseInt(document.getElementById("ey").value);
+  var w=parseInt(document.getElementById("ew").value);
+  var h=parseInt(document.getElementById("eh").value);
+  if(!isNaN(x)&&!isNaN(y)&&!isNaN(w)&&!isNaN(h)){
+    platforms.push({x:x,y:y,w:w,h:h});
+    updateEditorText();
   }
 }
-function loadState(){
-  try{
-    var raw = localStorage.getItem('paperrun_save');
-    if(!raw) { alert('Aucune sauvegarde trouvée.'); return; }
-    var st = JSON.parse(raw);
-    curLevel = st.level || 0;
-    map = st.map || map;
-    player.x = (st.player && st.player.x) || player.x;
-    player.y = (st.player && st.player.y) || player.y;
-    score = st.score || 0;
-    scoreEl.textContent = score;
-    alert('Chargé.');
-  }catch(e){
-    alert('Erreur lors du chargement.');
-  }
+function updateEditorText(){
+  document.getElementById("levelData").value=JSON.stringify(platforms);
 }
-
-// ===== Idle power saver (léger, identique idea) =====
-var idleCounter = 0;
-setInterval(function(){
-  var any = keys.left || keys.right || keys.jump || touchButtons.left || touchButtons.right || touchButtons.jump;
-  if(!any){
-    idleCounter++;
-    if(idleCounter > 20 && !lowPerf){
-      FPS = Math.max(2, Math.floor(FPS/2));
-      tickInterval = 1000 / FPS;
-    }
-  } else {
-    idleCounter = 0;
-    FPS = lowPerf ? DEFAULT_FPS : HIGH_FPS;
-    tickInterval = 1000 / FPS;
-  }
-}, 1000);
-
-// ===== Init =====
-bindControls();
-restartLevel();
-lastTick = Date.now();
-setInterval(gameTick, 1000 / FPS);
-
-// tiny polyfill: ensure SVG <use> works on older engines (best-effort)
-(function(){
-  var svg = document.getElementById('sprites');
-  if(!svg) return;
-  // nothing heavy here; fallback visuals are already provided via solid divs if browser fails
-})();
-
+function loadLevel(){
+  var txt=document.getElementById("levelData").value;
+  try{platforms=JSON.parse(txt);}catch(e){platforms=[];}
+  drawPlatforms();
+}
+init();
 </script>
 </body>
 </html>
